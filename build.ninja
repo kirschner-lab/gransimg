@@ -1,0 +1,24 @@
+libomp_root = /opt/homebrew/Cellar/libomp/18.1.7
+libtiff_root = /Users/Shared/spack/libtiff/4.5.1/jav6eph
+
+# Using OpenMP with Apple clang additionally requires -Xpreprocessor or
+# -Wp,<arg1>,<arg2> to pass -fopenmp to the preprocessor per
+# https://stackoverflow.com/a/60564864/10602009 and
+# https://clang.llvm.org/docs/ClangCommandLineReference.html#preprocessor-options
+rule cc
+  command = clang $
+  -g $
+  -o $out $
+  $in $
+  -Wp,-fopenmp $
+  -I$libomp_root/include $
+  -I$libtiff_root/include $
+  -L$libtiff_root/lib $
+  -Wl,-rpath,$libtiff_root/lib $
+  -ltiff
+
+rule validate_mem
+  command = leaks -atExit -- ./$out --test
+  pool = console
+
+build gransimg : cc gransimg.c |@ validate_mem
