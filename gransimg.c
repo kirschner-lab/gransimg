@@ -20,6 +20,7 @@
 #include <string.h>
 #include <getopt.h>
 #include <unistd.h>
+#include <sys/syslimits.h>	/* PATH_MAX */
 #include <errno.h>
 
 #include <tiffio.h>
@@ -46,7 +47,7 @@ struct opts_s {
 } opts_default = {".", "img", "0", "0"};
 typedef struct opts_s opts_t;
 
-/** Program usage. */
+/** Program usage matching LONGOPTS below. */
 const char USAGE[] = "Usage: gransimg [--help] [--test] [--input DIR_INPUT] "
   "[--output DIR_OUTPUT]\n"
   "                [--exps LIST_EXPS] [--days LIST_DAYS]\n\n"
@@ -65,6 +66,30 @@ const char USAGE[] = "Usage: gransimg [--help] [--test] [--input DIR_INPUT] "
   "             supported.\n"
   "--days       String of integers separated by non-numeric characters\n"
   "             (default: 0 for the last day).\n";
+
+/** Populate the option structs described in `man 3 getopt_long`. */
+const struct option LONGOPTS[] = {
+  {"help", no_argument, NULL, 'h'},
+  {"test-args", no_argument, NULL, 'a'},
+  {"test-imgs", no_argument, NULL, 't'},
+  {"input", required_argument, NULL, 'i'},
+  {"output", required_argument, NULL, 'o'},
+  {"exps", required_argument, NULL, 'e'},
+  {"days", required_argument, NULL, 'd'},
+  {NULL, 0, NULL, 0}
+};
+
+/** Metadata to query images from the model run directory. */
+struct run_s {
+  char* root;
+  int* exps;
+  int* times;
+  int n_exps;
+  int n_times;
+} run_default = {NULL, NULL, NULL, 0, 0};
+typedef struct run_s run_t;
+const int EXPS_MAX = 65535;
+const int TIMES_MAX = 65535;
 
 /**
  * @internal
@@ -199,29 +224,32 @@ write_im_chemokine(char* name, float* im) {
 
 /**
  * @internal
- * @brief Parse CLI arguments.
+ * @brief Print semi-parsed CLI arguments.
  *
+ * @param opts Parsed options.
+ */
+void
+print_args(opts_t* opts)
+{
+  printf("input: %s\noutput: %s\nexps: %s\ndays: %s\n",
+	 opts->i, opts->o, opts->e, opts->d);
+}
+
+
+/**
+ * @internal
+ * @brief Semi-parse CLI arguments.
+ *
+ * @param opts Stores parsed options.
  * @param argc Passed from main().
  * @param argv Passed from main().
  */
 void
 parse_args(opts_t* opts, int argc, char* argv[])
 {
-  /* Populate the option structs described in `man 3 getopt_long`. */
-  struct option longopts[] = {
-    {"help", no_argument, NULL, 'h'},
-    {"test-args", no_argument, NULL, 'a'},
-    {"test-imgs", no_argument, NULL, 't'},
-    {"input", required_argument, NULL, 'i'},
-    {"output", required_argument, NULL, 'o'},
-    {"exps", required_argument, NULL, 'e'},
-    {"days", required_argument, NULL, 'd'},
-    {NULL, 0, NULL, 0}
-  };
-
   int test_args = 0;
   int ch;
-  while ((ch = getopt_long(argc, argv, "", longopts, NULL)) != -1) {
+  while ((ch = getopt_long(argc, argv, "", LONGOPTS, NULL)) != -1) {
     switch(ch) {
     case 'h':
       printf(USAGE);
@@ -260,10 +288,59 @@ parse_args(opts_t* opts, int argc, char* argv[])
   }
 
   if (test_args) {
-    printf("input: %s\noutput: %s\nexps: %s\ndays: %s\n",
-	   opts->i, opts->o, opts->e, opts->d);
+    print_args(opts);
     exit(0);
   }
+}
+
+
+/**
+ * @brief Initialize metadata for the model directory.
+ *
+ * @param run Stores new run object.
+ * @param opts Semi-parsed options from parse_opts().
+ */
+void
+run_init(run_t* run, opts_t* opts)
+{
+  char* root = (char*) malloc(PATH_MAX * sizeof(char));
+  run->root = realpath(opts->i, root);
+  /* If no experiments are provided, process all experiment directories. */
+  if (strncmp(opts->e, "0", 1)) {
+    
+  } else {
+    
+  }
+  /* If no days are provided, process last timepoint. */
+  if (strncmp(opts->d, "0", 1)) {
+    
+  } else {
+    
+  }
+}
+
+
+/**
+ * @brief Print metadata for the model directory.
+ *
+ * @param run Run object to inspect.
+ */
+void
+run_print(run_t* run)
+{
+  printf("root: %s\n",/* \nexps: %s\ntimes: %s\n", */
+	 run->root/* , run->exps, run->times */);
+}
+
+/**
+ * @brief Free allocated memory of model directory metadata.
+ *
+ * @param run Run object to free.
+ */
+void
+run_destroy(run_t* run)
+{
+  free(run->root);
 }
 
 
@@ -280,6 +357,13 @@ main(int argc, char* argv[])
 {
   opts_t opts = opts_default;
   parse_args(&opts, argc, argv);
+
+  print_args(&opts);
+
+  run_t run = run_default;
+  run_init(&run, &opts);
+  run_print(&run);
+  run_destroy(&run);
 
   return 0;
 }
