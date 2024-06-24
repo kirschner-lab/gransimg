@@ -7,9 +7,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -170,7 +170,7 @@ write_im_agent(char* name, uint32_t* im)
 {
   TIFF* tif;
   im_begin(&tif, name, AGENT);
-  
+
   if (tif) {
     tmsize_t bufsz = TIFFStripSize(tif);
     uint32_t *buf = (uint32_t*) _TIFFmalloc(bufsz);
@@ -203,7 +203,7 @@ int
 write_im_chemokine(char* name, float* im) {
   TIFF* tif;
   im_begin(&tif, name, CHEMOKINE);
-  
+
   if (tif) {
     tmsize_t bufsz = TIFFStripSize(tif);
     float *buf = (float*) _TIFFmalloc(bufsz);
