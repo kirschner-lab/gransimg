@@ -17,21 +17,44 @@
  * limitations under the License.
  */
 
-#include <string.h>
-#include <getopt.h>
-#include <unistd.h>
-#include <sys/syslimits.h>	/* PATH_MAX */
+/* C standard library */
 #include <errno.h>
+#include <regex.h>
+#include <stdio.h>
+#include <string.h>
 
-#include <tiffio.h>
+/* Unix library */
+#include <dirent.h>
+#include <getopt.h>
+#include <sys/syslimits.h>	/* PATH_MAX */
+#include <unistd.h>
+
+/* External libraries */
 #include <omp.h>
+#include <tiffio.h>
 
+
+/* BEGIN USER CONFIGURATION */
 
 /** Change this to your GranSim grid size. */
 const int SZ = 300;
 
 /** Change this to your GranSim timesteps-per-day. */
 const int TS_PER_DAY = 144;
+
+/** The value of `--agent-dump-file` in "lung-model-options-short.sh". */
+const char FILE_AGENTS[] = "agents";
+
+/** The value(s) of `--grids-to-dump` in "lung-model-options-short.sh". */
+const char FILES_GRIDS[][10] = {
+  "TNF",
+  "nKillings"
+};
+
+/* END USER CONFIGURATION */
+
+
+/* BEGIN CONSTANTS, ENUMS, AND STRUCTS */
 
 typedef enum {
   AGENT,
@@ -91,6 +114,9 @@ typedef struct run_s run_t;
 const int EXPS_MAX = 65535;
 const int TIMES_MAX = 65535;
 
+/* END CONSTANTS, ENUMS, AND STRUCTS */
+
+
 /**
  * @internal
  * @brief Common code for functions write_im_agent() and write_im_chemokine().
@@ -110,7 +136,7 @@ im_begin(TIFF** tif, char* name, im_t im_type)
 {
   *tif = TIFFOpen(name, "w");
 #ifdef DEBUG
-  printf("TIFFOpen(\"...\", \"w\") = %p\n", tif);
+  fprintf(stderr, "TIFFOpen(\"...\", \"w\") = %p\n", tif);
 #endif
 
   /* Match ImageJ2's TIFF tags. */
@@ -305,18 +331,115 @@ run_init(run_t* run, opts_t* opts)
 {
   char* root = (char*) malloc(PATH_MAX * sizeof(char));
   run->root = realpath(opts->i, root);
+
   /* If no experiments are provided, process all experiment directories. */
-  if (strncmp(opts->e, "0", 1)) {
-    
+  if (strncmp(opts->e, "0", 1) == 0) {
+    /* Allocate maximum size and realloc after finding the paths. */
+    regex_t preg;
+    const char pat[] = "^exp([0-9]+)$";
+    int ret = regcomp(&preg, pat, REG_EXTENDED);
+    if (ret != 0) {
+      fprintf(stderr,
+	      "Error: Failed to compile regular expression: %s\n",
+	      run->root);
+      exit(1);
+    }
+    DIR* dir = opendir(run->root);
+    if (dir == NULL) {
+      fprintf(stderr,
+	      "Error: Failed to open directory: %s\n",
+	      run->root);
+      exit(1);
+    }
+    int* exps = (int*) malloc(EXPS_MAX * sizeof(int));
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != NULL) {
+      if (ent->d_type == DT_DIR) {
+#ifdef DEBUG
+	fprintf(stderr,
+		"Checking if directory matches %s pattern: %s ...",
+		pat, ent->d_name);
+#endif
+	size_t nmatch = 2;
+	regmatch_t pmatch[nmatch];
+	ret = regexec(&preg, ent->d_name, nmatch, pmatch, 0);
+	if (ret == 0) {
+	  char cmatch[5];
+	  strncpy(cmatch,
+		  ent->d_name + pmatch[1].rm_so,
+		  pmatch[1].rm_eo - pmatch[1].rm_so);
+	  exps[run->n_exps] = atoi(cmatch);
+#ifdef DEBUG
+	  fprintf(stderr, " %d\n", exps[run->n_exps]);
+#endif
+	  run->n_exps++;
+	} else if (ret == REG_NOMATCH) {
+#ifdef DEBUG
+	  printf(" no\n");
+#endif
+	} else {
+	  char errbuf[1024];
+	  regerror(ret, &preg, errbuf, sizeof(errbuf));
+	  fprintf(stderr, "Error: Regex match failed: %s\n", errbuf);
+	  exit(1);
+	}
+      }
+    }
+    regfree(&preg);
+    exps = (int*) realloc(exps, sizeof(int) * run->n_exps);
+    run->exps = exps;
   } else {
-    
+    /* TODO. */
   }
+
   /* If no days are provided, process last timepoint. */
-  if (strncmp(opts->d, "0", 1)) {
-    
+  int* times = (int*) malloc(TIMES_MAX * sizeof(int));
+  if (strncmp(opts->d, "0", 1) == 0) {
+    run->n_times = 1;
+    /* The smallest file is the stats file. */
+    int exp = run->exps[0];
+    char file_seed[PATH_MAX];
+    sprintf(file_seed, "%s/exp%d/exp%d-1/seed", run->root, exp, exp);
+    char buffer[65535];
+    FILE* stream = fopen(file_seed, "r");
+    if (stream) {
+      fgets(buffer, sizeof(buffer), stream);
+      fclose(stream);
+    } else {
+      fprintf(stderr, "Error: Cannot read file %s\n", file_seed);
+      exit(1);
+    }
+    int seed = atoi(buffer);
+    sprintf(file_seed, "%s/exp%d/exp%d-1/seed%d.csv",
+	    run->root, exp, exp, seed);
+    stream = fopen(file_seed, "r");
+    if (stream) {
+      /* Read the last line. */
+      while (! feof(stream)) {
+	/* /\* Clean the buffer. *\/ */
+	/* memset(buffer, 0x00, sizeof(buffer)); */
+	fscanf(stream, "%[^\n]\n", buffer);
+      }
+      fclose(stream);
+#ifdef DEBUG
+      printf("Last line: %s\n", buffer);
+#endif
+      for (size_t i = 0; i < sizeof(buffer); ++i) {
+	if (buffer[i] == ',') {
+	  buffer[i] = '\0';
+	  break;
+	}
+      }
+      times[0] = atoi(buffer);
+    } else {
+      fprintf(stderr, "Error: Cannot read file %s\n", file_seed);
+      exit(1);
+    }
+    times = (int*) realloc(times, sizeof(int) * run->n_times);
   } else {
-    
+    /* TODO. */
   }
+  run->times = times;
 }
 
 
@@ -328,8 +451,17 @@ run_init(run_t* run, opts_t* opts)
 void
 run_print(run_t* run)
 {
-  printf("root: %s\n",/* \nexps: %s\ntimes: %s\n", */
-	 run->root/* , run->exps, run->times */);
+  printf("root: %s\nexps: <%d> ", run->root, run->n_exps);
+  printf("%d", run->exps[0]);
+  for (int i = 1; i < run->n_exps; ++i) {
+    printf(", %d", run->exps[i]);
+  }
+  printf("\ntimes: <%d> ", run->n_times);
+  printf("%d", run->times[0]);
+  for (int i = 1; i < run->n_times; ++i) {
+    printf(", %d", run->times[i]);
+  }
+  printf("\n");
 }
 
 /**
@@ -341,6 +473,8 @@ void
 run_destroy(run_t* run)
 {
   free(run->root);
+  free(run->exps);
+  free(run->times);
 }
 
 
