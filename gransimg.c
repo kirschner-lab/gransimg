@@ -20,6 +20,8 @@
 /* C standard library */
 #include <errno.h>
 #include <regex.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -50,6 +52,10 @@ const char FILES_GRIDS[][10] = {
   "TNF",
   "nKillings"
 };
+const size_t N_FILES_GRIDS = sizeof(FILES_GRIDS) / sizeof(FILES_GRIDS[0]);
+
+/** Mapping of agent states to names. */
+// TODO
 
 /* END USER CONFIGURATION */
 
@@ -321,6 +327,33 @@ parse_args(opts_t* opts, int argc, char* argv[])
 
 
 /**
+ * @internal
+ * @brief Read the model run directory seed.
+ *
+ * @param seed Output seed integer value.
+ * @param path Output path to the seed file.
+ * @param exp Experiment to read.
+ * @param run Simulation run object containing the root directory.
+ * @param buffer Temporary storage of seed file contents.
+ */
+void
+run_read_seed(int* seed, char* path, int exp, run_t* run, char* buffer,
+	      size_t buffer_sz)
+{
+  sprintf(path, "%s/exp%d/exp%d-1/seed", run->root, exp, exp);
+  FILE* stream = fopen(path, "r");
+  if (stream) {
+    fgets(buffer, buffer_sz, stream);
+    fclose(stream);
+  } else {
+    fprintf(stderr, "Error: Cannot read file %s\n", path);
+    exit(1);
+  }
+  *seed = atoi(buffer);
+}
+
+
+/**
  * @brief Initialize metadata for the model directory.
  *
  * @param run Stores new run object.
@@ -375,11 +408,11 @@ run_init(run_t* run, opts_t* opts)
 	  run->n_exps++;
 	} else if (ret == REG_NOMATCH) {
 #ifdef DEBUG
-	  printf(" no\n");
+	  fprintf(stderr, " no\n");
 #endif
 	} else {
 	  char errbuf[1024];
-	  regerror(ret, &preg, errbuf, sizeof(errbuf));
+	  regerror(ret, &preg, errbuf, 1024);
 	  fprintf(stderr, "Error: Regex match failed: %s\n", errbuf);
 	  exit(1);
 	}
@@ -399,30 +432,20 @@ run_init(run_t* run, opts_t* opts)
     /* The smallest file is the stats file. */
     int exp = run->exps[0];
     char file_seed[PATH_MAX];
-    sprintf(file_seed, "%s/exp%d/exp%d-1/seed", run->root, exp, exp);
+    int seed = -1;
     char buffer[65535];
-    FILE* stream = fopen(file_seed, "r");
-    if (stream) {
-      fgets(buffer, sizeof(buffer), stream);
-      fclose(stream);
-    } else {
-      fprintf(stderr, "Error: Cannot read file %s\n", file_seed);
-      exit(1);
-    }
-    int seed = atoi(buffer);
+    run_read_seed(&seed, file_seed, exp, run, buffer, 65535);
     sprintf(file_seed, "%s/exp%d/exp%d-1/seed%d.csv",
 	    run->root, exp, exp, seed);
-    stream = fopen(file_seed, "r");
+    FILE* stream = fopen(file_seed, "r");
     if (stream) {
       /* Read the last line. */
       while (! feof(stream)) {
-	/* /\* Clean the buffer. *\/ */
-	/* memset(buffer, 0x00, sizeof(buffer)); */
 	fscanf(stream, "%[^\n]\n", buffer);
       }
       fclose(stream);
 #ifdef DEBUG
-      printf("Last line: %s\n", buffer);
+      fprintf(stderr, "Last line: %s\n", buffer);
 #endif
       for (size_t i = 0; i < sizeof(buffer); ++i) {
 	if (buffer[i] == ',') {
@@ -464,6 +487,7 @@ run_print(run_t* run)
   printf("\n");
 }
 
+
 /**
  * @brief Free allocated memory of model directory metadata.
  *
@@ -475,6 +499,128 @@ run_destroy(run_t* run)
   free(run->root);
   free(run->exps);
   free(run->times);
+}
+
+
+/**
+ * @brief Read GranSim grid dump.
+ *
+ * @param im Output to fill from path.
+ * @param path Agent dump CSV file to read.
+ */
+int
+read_grid(float* im, char* path, int time, char* buffer, size_t buffer_sz)
+{
+  FILE* stream = fopen(path, "r");
+  char time_c[128];
+  size_t offset = -1;
+  if (stream) {
+    /* Find the line containing the timepoint. */
+    bool found = false;
+    while (! feof(stream) && ! found) {
+      fscanf(stream, "%[^\n]\n", buffer);
+      for (size_t i = 0; i < buffer_sz; ++i) {
+	if (buffer[i] == ',') {
+	  strncpy(time_c, buffer, i);
+	  if (time == atoi(time_c)) {
+	    found = true;
+	    offset = i;
+#ifdef DEBUG
+	    fprintf(stderr, "Image offset: %lu\n", i);
+#endif
+	  }
+	  break;		/* break the for loop. */
+	}
+      }
+    }
+#ifdef DEBUG
+    /* Printing the entire buffer line is massive, so only print a preview. */
+    strncpy(time_c, buffer, 127);
+    fprintf(stderr, "Image line: %s...\n", time_c);
+#endif
+    /* Scan the image values. */
+    char* ptr_begin = &buffer[offset + 1];
+    char* ptr_end = NULL;
+    for (int i = 0; i < SZ; ++i) {
+      for (int j = 0; j < SZ; ++j) {
+	ptr_end = strchr(ptr_begin, ',');
+	im[i * SZ + j] = strtof(ptr_begin, &ptr_end);
+	ptr_begin = ptr_end + 1;
+      }
+    }
+#ifdef DEBUG
+    /* Preview image. */
+    fprintf(stderr, "Image: %f", im[0]);
+    for (int i = 1; i < 63; ++i) {
+      fprintf(stderr, ", %e", im[i]);
+    }
+    fprintf(stderr, ", ...");
+    for (int i = SZ * SZ - 64; i < SZ * SZ; ++i) {
+      fprintf(stderr, ", %e", im[i]);
+    }
+    fprintf(stderr, "\n");
+#endif
+  }
+  fclose(stream);
+  return 0;
+}
+
+
+/**
+ * @brief Write all images for a given experiment and time.
+ *
+ * @param exp Integer of experiment.
+ * @param time Integer of time ticks.
+ * @param run Initialized model run_t.
+ *
+ * @return 0 on success, 1 if any image is missing.
+ */
+int
+write_ims(int exp, int time, run_t* run, opts_t* opts)
+{
+  int im_counter = 1;
+  /* Buffer must be large enough to hold an entire row of the CSV. */
+  const size_t buffer_sz = 1<<24;
+#ifdef DEBUG
+  printf("Image buffer size: %lu\n", buffer_sz);
+#endif
+  char* buffer = NULL;
+  buffer = (char*) malloc(sizeof(char) * buffer_sz);
+  if (buffer == NULL) {
+    fprintf(stderr, "Error: Cannot allocate image buffer\n");
+    exit(1);
+  }
+  /* Read the seed. */
+  char path[PATH_MAX];
+  int seed;
+  run_read_seed(&seed, path, exp, run, buffer, buffer_sz);
+
+  /* Write the grids. */
+  float* im_f = (float*) malloc(sizeof(float) * SZ * SZ);
+  for (size_t i = 0; i < N_FILES_GRIDS; ++i) {
+    sprintf(path, "%s/exp%d/exp%d-1/%s%d.csv",
+	    run->root, exp, exp, FILES_GRIDS[i], seed);
+    fprintf(stderr, "Saving exp %d time %d grid %ld from %s\n",
+	    exp, time, i, path);
+    if (strncmp(FILES_GRIDS[i], "nKillings", 9) != 0) {
+#ifdef DEBUG
+      fprintf(stderr, "  read_grid(%p, \"%s\")\n",
+	      im_f, path);
+#endif
+      read_grid(im_f, path, time, buffer, buffer_sz);
+#ifdef DEBUG
+      fprintf(stderr, "  write_im_chemokine(\"%s\")\n",
+	      FILES_GRIDS[i]);
+#endif
+      sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
+	      opts->o, exp, time, im_counter, FILES_GRIDS[i]);
+      write_im_chemokine(path, im_f);
+    }
+    ++im_counter;
+  }
+  free(im_f);
+  free(buffer);
+  return 0;
 }
 
 
@@ -491,12 +637,33 @@ main(int argc, char* argv[])
 {
   opts_t opts = opts_default;
   parse_args(&opts, argc, argv);
-
+#ifdef DEBUG
   print_args(&opts);
+#endif
 
   run_t run = run_default;
   run_init(&run, &opts);
   run_print(&run);
+
+  /* Shared memory allocations. */
+  const int max_sets = run.n_exps * run.n_times;
+  atomic_int sum_sets = 0;
+#pragma omp parallel
+  {
+    /* Thread-specific memory allocations. */
+#pragma omp for nowait
+    for (int i = 0; i < max_sets; ++i) {
+      int exp = run.exps[i - i / run.n_exps];
+      int time = run.times[i / run.n_exps];
+      write_ims(exp, time, &run, &opts);
+      ++sum_sets;
+    }
+    /* Report progress in master thread only. */
+#pragma omp master
+    fprintf(stderr, "Progress: %d / %d\n", sum_sets, max_sets);
+  }
+  fprintf(stderr, "Finished\n");
+
   run_destroy(&run);
 
   return 0;

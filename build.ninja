@@ -13,8 +13,11 @@ rule cc
   -Wp,-fopenmp $
   -I$libomp_root/include $
   -I$libtiff_root/include $
+  -L$libomp_root/lib $
   -L$libtiff_root/lib $
+  -Wl,-rpath,$libomp_root/lib $
   -Wl,-rpath,$libtiff_root/lib $
+  -lomp $
   -ltiff
 
 rule validate_mem
