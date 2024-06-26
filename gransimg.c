@@ -18,6 +18,7 @@
  */
 
 /* C standard library */
+#include <ctype.h>
 #include <errno.h>
 #include <regex.h>
 #include <stdatomic.h>
@@ -734,6 +735,47 @@ read_xml_xpath(char* value, size_t sz_value, char* xpath, char* path)
   return 0;
 }
 
+
+/**
+ * @brief Convolve probability image and kernel ignoring edge values.
+ *
+ * @param res Output probability image.
+ * @param im Image to convolve with the kernel.
+ * @param kernel Kernel to convolve with im.
+ * @param sz_kernel One of the dimensions of the square kernel.
+ */
+void
+convolve_prob(float* res, uint32_t* im, float* kernel, size_t sz_kernel)
+{
+  /* Initialize result image. */
+  for (int i = 0; i < SZ * SZ; ++i) {
+    res[i] = 0.0;
+  }
+  int kern_c = sz_kernel / 2;
+  for (int i = 0; i < SZ; ++i) {
+    for (int j = 0; j < SZ; ++j) {
+      /* Convolution. */
+      for (size_t m = 0; m < sz_kernel; ++m) {
+	int mm = sz_kernel - 1 - m;
+	for (size_t n = 0; n < sz_kernel; ++n) {
+	  int nn = sz_kernel - 1 - n;
+	  int ii = i + (kern_c - mm);
+	  int jj = j + (kern_c - nn);
+	  if (ii >= 0 && ii <= SZ &&
+	      jj >= 0 && jj <= SZ) {
+	    res[i * SZ + j] += im[ii * SZ + jj] * kernel[mm * sz_kernel + nn];
+	  }
+	}
+      }
+      /* Maximum probability of 1.0. */
+      if (res[i * SZ + j] > 1.0) {
+	res[i * SZ + j] = 1.0;
+      }
+    }
+  }
+}
+
+
 /**
  * @brief Write all images for a given experiment and time.
  *
@@ -790,8 +832,34 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
   }
 
   /* Write agent-derived grids. */
+  char path_xml[PATH_MAX];
+  sprintf(path_xml, "%s/%d.xml", run->root, exp);
+  char xpath_prob[] = "/GR/Core/Tcell/Tgam@probIFNMooreExtend";
+  char prob_c[10];
+  read_xml_xpath(prob_c, 10, xpath_prob, path_xml);
+  float prob = atof(prob_c);
+#ifdef DEBUG
+  fprintf(stderr, "Setting exp %d IFN-g probability from %s = %e\n",
+	  exp, xpath_prob, prob);
+#endif
+  float kernel[5 * 5] = {
+    prob, prob, prob, prob, prob,
+    prob,   1.,   1.,   1., prob,
+    prob,   1.,   1.,   1., prob,
+    prob,   1.,   1.,   1., prob,
+    prob, prob, prob, prob, prob,
+  };
+  uint32_t* im_tgam = &im_i[T_GAM * SZ * SZ];
   float* im_f = (float*) malloc(sizeof(float) * SZ * SZ);
-  // TODO
+  convolve_prob(im_f, im_tgam, kernel, 5);
+  strncpy(im_name, "ifng", sizeof("ifng"));
+#ifdef DEBUG
+  fprintf(stderr, "  write_im_grid(\"%s\")\n", im_name);
+#endif
+  sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
+	  opts->o, exp, time, im_counter, im_name);
+  write_im_chemokine(path, im_f);
+  ++im_counter;
 
   /* Write the grids. */
   for (size_t i = 0; i < N_FILES_GRIDS; ++i) {
@@ -807,19 +875,20 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
     read_grid(im_f, path, time, buffer, buffer_sz);
     if (strncmp(FILES_GRIDS[i], "nKillings", 9) == 0) {
       strncpy(im_name, "caseum", sizeof("caseum"));
-      char path_xml[PATH_MAX];
-      sprintf(path_xml, "%s/%d.xml", run->root, exp);
       char threshold_c[3];
-      char xpath[] = "/GR/Core@nrKillingsCaseation";
-      read_xml_xpath(threshold_c, 3, xpath, path_xml);
+      char xpath_threshold[] = "/GR/Core@nrKillingsCaseation";
+      read_xml_xpath(threshold_c, 3, xpath_threshold, path_xml);
       int threshold = atoi(threshold_c);
 #ifdef DEBUG
       fprintf(stderr, "Setting exp %d caseum threshold from %s = %d\n",
-	      exp, xpath, threshold);
+	      exp, xpath_threshold, threshold);
 #endif
       for (int i = 0; i < SZ * SZ; ++i) {
 	im_f[i] = im_f[i] >= threshold;
       }
+    }
+    for (unsigned long i = 0; i < strlen(im_name); ++i) {
+      im_name[i] = tolower(im_name[i]);
     }
 #ifdef DEBUG
     fprintf(stderr, "  write_im_chemokine(\"%s\")\n", im_name);
