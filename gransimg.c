@@ -688,14 +688,12 @@ read_xml_xpath(char* value, size_t sz_value, char* xpath, char* path)
     fprintf(stderr, "Error: XPath missing '@' attribute: %s\n", xpath);
     return 1;
   }
-  size_t sz = strlen(xpath);
-  xmlChar xpath_node[sz + 1];
-  strncpy((char*) xpath_node, xpath, ptr_end - xpath);
-  xmlChar xpath_attr[sz - strlen((char*) xpath_node) + 1];
-  strncpy((char*) xpath_attr, ptr_end + 1, sz - (ptr_end - xpath));
+  char xpath_node[strlen(xpath) + 1];
+  strncpy(xpath_node, xpath, ptr_end - xpath);
+  char* xpath_attr = (ptr_end + 1);
 #ifdef DEBUG
   fprintf(stderr, "XPath %s split into %s node and %s attribute.\n",
-	  xpath, (char*) xpath_node, (char*) xpath_attr);
+	  xpath, xpath_node, xpath_attr);
 #endif
 
   /* Retrieve XPath node attribute. */
@@ -727,7 +725,8 @@ read_xml_xpath(char* value, size_t sz_value, char* xpath, char* path)
     return 1;
   }
   strncpy(value,
-	  (char*) xmlGetProp(*result->nodesetval->nodeTab, xpath_attr),
+	  (char*) xmlGetProp(*result->nodesetval->nodeTab,
+			     (xmlChar*) xpath_attr),
 	  sz_value);
   xmlXPathFreeObject(result);
   xmlXPathFreeContext(context);
@@ -832,33 +831,35 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
   }
 
   /* Write agent-derived grids. */
+  float* im_f = (float*) malloc(sizeof(float) * SZ * SZ);
   char path_xml[PATH_MAX];
   sprintf(path_xml, "%s/%d.xml", run->root, exp);
   char xpath_prob[] = "/GR/Core/Tcell/Tgam@probIFNMooreExtend";
   char prob_c[10];
-  read_xml_xpath(prob_c, 10, xpath_prob, path_xml);
-  float prob = atof(prob_c);
+  int ret = read_xml_xpath(prob_c, 10, xpath_prob, path_xml);
+  if (ret == 0) {
+    float prob = atof(prob_c);
 #ifdef DEBUG
-  fprintf(stderr, "Setting exp %d IFN-g probability from %s = %e\n",
-	  exp, xpath_prob, prob);
+    fprintf(stderr, "Setting exp %d IFN-g probability from %s = %e\n",
+	    exp, xpath_prob, prob);
 #endif
-  float kernel[5 * 5] = {
-    prob, prob, prob, prob, prob,
-    prob,   1.,   1.,   1., prob,
-    prob,   1.,   1.,   1., prob,
-    prob,   1.,   1.,   1., prob,
-    prob, prob, prob, prob, prob,
-  };
-  uint32_t* im_tgam = &im_i[T_GAM * SZ * SZ];
-  float* im_f = (float*) malloc(sizeof(float) * SZ * SZ);
-  convolve_prob(im_f, im_tgam, kernel, 5);
-  strncpy(im_name, "ifng", sizeof("ifng"));
+    float kernel[5 * 5] = {
+      prob, prob, prob, prob, prob,
+      prob,   1.,   1.,   1., prob,
+      prob,   1.,   1.,   1., prob,
+      prob,   1.,   1.,   1., prob,
+      prob, prob, prob, prob, prob,
+    };
+    uint32_t* im_tgam = &im_i[T_GAM * SZ * SZ];
+    convolve_prob(im_f, im_tgam, kernel, 5);
+    strncpy(im_name, "ifng", sizeof("ifng"));
 #ifdef DEBUG
-  fprintf(stderr, "  write_im_grid(\"%s\")\n", im_name);
+    fprintf(stderr, "  write_im_grid(\"%s\")\n", im_name);
 #endif
-  sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
-	  opts->o, exp, time, im_counter, im_name);
-  write_im_chemokine(path, im_f);
+    sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
+	    opts->o, exp, time, im_counter, im_name);
+    write_im_chemokine(path, im_f);
+  }
   ++im_counter;
 
   /* Write the grids. */
@@ -877,14 +878,16 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
       strncpy(im_name, "caseum", sizeof("caseum"));
       char threshold_c[3];
       char xpath_threshold[] = "/GR/Core@nrKillingsCaseation";
-      read_xml_xpath(threshold_c, 3, xpath_threshold, path_xml);
-      int threshold = atoi(threshold_c);
+      ret = read_xml_xpath(threshold_c, 3, xpath_threshold, path_xml);
+      if (ret == 0) {
+	int threshold = atoi(threshold_c);
 #ifdef DEBUG
-      fprintf(stderr, "Setting exp %d caseum threshold from %s = %d\n",
-	      exp, xpath_threshold, threshold);
+	fprintf(stderr, "Setting exp %d caseum threshold from %s = %d\n",
+		exp, xpath_threshold, threshold);
 #endif
-      for (int i = 0; i < SZ * SZ; ++i) {
-	im_f[i] = im_f[i] >= threshold;
+	for (int i = 0; i < SZ * SZ; ++i) {
+	  im_f[i] = im_f[i] >= threshold;
+	}
       }
     }
     for (unsigned long i = 0; i < strlen(im_name); ++i) {
