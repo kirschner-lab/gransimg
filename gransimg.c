@@ -57,8 +57,39 @@ const char FILES_GRIDS[][NCHARS_FILES_GRIDS] = {
 };
 const size_t N_FILES_GRIDS = sizeof(FILES_GRIDS) / NCHARS_FILES_GRIDS;
 
-/** Mapping of agent states to names. */
-// TODO
+/** Mapping of agent states to groups. */
+typedef enum {
+  MAC,
+  T_GAM,
+  T_CYT,
+  T_REG,
+  FIB,
+  MYOFIB,
+  N_AGENTS,
+  IGNORE
+} agent_group_t;
+const size_t NCHARS_AGENT_GROUP = 7;
+const char AGENT_GROUP_NAMES[][NCHARS_AGENT_GROUP] = {
+  "mac",
+  "t_gam",
+  "t_cyt",
+  "t_reg",
+  "fib",
+  "myofib"
+};
+/* O(1) lookup of agent group from agent TYPE and STATE. */
+const int N_AGENT_TYPES = 7;
+const int N_AGENT_STATES = 4;
+const int AGENT_GROUPS[N_AGENT_TYPES][N_AGENT_STATES] = {
+  /*    0,      1,      2,      3 : STATES */
+  {   MAC,    MAC,    MAC,    MAC}, /* 0 : MAC */
+  {IGNORE, IGNORE, IGNORE, IGNORE}, /* 1 : DCELL_LUNG */
+  {IGNORE,  T_GAM,  T_GAM, IGNORE}, /* 2 : TGAM */
+  {IGNORE,  T_CYT,  T_CYT, IGNORE}, /* 3 : TCYT */
+  {IGNORE,  T_REG,  T_REG, IGNORE}, /* 4 : TREG */
+  {IGNORE, IGNORE, IGNORE, IGNORE}, /* 5 : MTB */
+  {   FIB, MYOFIB, IGNORE, IGNORE}, /* 6 : FIBROBLAST */
+};
 
 /* END USER CONFIGURATION */
 
@@ -506,6 +537,73 @@ run_destroy(run_t* run)
 
 
 /**
+ * @brief Read GranSim agents dump.
+ *
+ * @param im Output to fill from path.
+ * @param path Agent dump CSV file to read.
+ */
+int
+read_agents(uint32_t* im, char* path, int time, char* buffer, size_t buffer_sz)
+{
+  FILE* stream = fopen(path, "r");
+  char time_c[128];
+  if (stream) {
+    /* Skip the header. */
+    fscanf(stream, "%[^\n]\n", buffer);
+    /* Find the line containing the timepoint. */
+    bool found = false;
+    while (! feof(stream) && ! found) {
+      fscanf(stream, "%[^\n]\n", buffer);
+      for (size_t i = 0; i < buffer_sz; ++i) {
+	if (buffer[i] == ',') {
+	  strncpy(time_c, buffer, i);
+	  if (time == atoi(time_c)) {
+	    found = true;
+	  }
+	  break;		/* break the for loop. */
+	}
+      }
+    }
+#ifdef DEBUG
+    fprintf(stderr, "Image beginning line: %s\n", buffer);
+    int counter[N_AGENTS] = {0};
+#endif
+    /* Scan the image values. */
+    int line_time = time;
+    while (! feof(stream) && time == line_time) {
+      int type, state, x, y;
+      fscanf(stream, "%d,%*d,%d,%d,%d,%d,%*[^\n]\n",
+	     &line_time, &type, &state, &x, &y);
+      if (time == line_time &&
+	type < N_AGENT_TYPES &&
+	  state < N_AGENT_STATES) {
+	int agent = AGENT_GROUPS[type][state];
+	if (agent != IGNORE) {
+#ifdef DEBUG
+	  ++counter[agent];
+#endif
+	  int offset = agent * SZ * SZ;
+	  int row = y;
+	  int col = x;
+	  ++im[(row * SZ + col) + offset];
+	}
+      }
+    }
+#ifdef DEBUG
+    /* Image agent counts. */
+    fprintf(stderr, "  Agents: %s = %d", AGENT_GROUP_NAMES[0], counter[0]);
+    for (int i = 1; i < N_AGENTS; ++i) {
+      fprintf(stderr, ", %s = %d", AGENT_GROUP_NAMES[i], counter[i]);
+    }
+    fprintf(stderr, "\n");
+#endif
+  }
+  fclose(stream);
+  return 0;
+}
+
+
+/**
  * @brief Read GranSim grid dump.
  *
  * @param im Output to fill from path.
@@ -567,6 +665,7 @@ read_grid(float* im, char* path, int time, char* buffer, size_t buffer_sz)
   fclose(stream);
   return 0;
 }
+
 
 /**
  * @brief Read XML XPath.
@@ -664,22 +763,50 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
   int seed;
   run_read_seed(&seed, path, exp, run, buffer, buffer_sz);
 
-  /* Write the grids. */
+  /* Write the agents. */
+  uint32_t* im_i = (uint32_t*) malloc(sizeof(uint32_t) * SZ * SZ * N_AGENTS);
+  for (size_t i = 0; i < SZ * SZ * N_AGENTS; ++i) {
+    im_i[i] = 0;
+  }
+  sprintf(path, "%s/exp%d/exp%d-1/%s%d.csv",
+	  run->root, exp, exp, FILE_AGENTS, seed);
+  fprintf(stderr, "Processing exp %d time %d agents from %s\n",
+	  exp, time, path);
+#ifdef DEBUG
+  fprintf(stderr, "  read_agents(%p, \"%s\")\n",
+	  im_i, path);
+#endif
+  read_agents(im_i, path, time, buffer, buffer_sz);
+  char im_name[128];
+  for (int i = 0; i < N_AGENTS; ++i) {
+    strncpy(im_name, AGENT_GROUP_NAMES[i], NCHARS_AGENT_GROUP);
+#ifdef DEBUG
+    fprintf(stderr, "  write_im_agent(\"%s\")\n", im_name);
+#endif
+    sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
+	    opts->o, exp, time, im_counter, im_name);
+    write_im_agent(path, &im_i[i * SZ * SZ]);
+    ++im_counter;
+  }
+
+  /* Write agent-derived grids. */
   float* im_f = (float*) malloc(sizeof(float) * SZ * SZ);
+  // TODO
+
+  /* Write the grids. */
   for (size_t i = 0; i < N_FILES_GRIDS; ++i) {
     sprintf(path, "%s/exp%d/exp%d-1/%s%d.csv",
 	    run->root, exp, exp, FILES_GRIDS[i], seed);
     fprintf(stderr, "Processing exp %d time %d grid %ld from %s\n",
 	    exp, time, i, path);
-    char name[NCHARS_FILES_GRIDS];
-    strncpy(name, FILES_GRIDS[i], sizeof(FILES_GRIDS[i]));
+    strncpy(im_name, FILES_GRIDS[i], sizeof(FILES_GRIDS[i]));
 #ifdef DEBUG
     fprintf(stderr, "  read_grid(%p, \"%s\")\n",
 	    im_f, path);
 #endif
     read_grid(im_f, path, time, buffer, buffer_sz);
     if (strncmp(FILES_GRIDS[i], "nKillings", 9) == 0) {
-      strncpy(name, "caseum", sizeof("caseum"));
+      strncpy(im_name, "caseum", sizeof("caseum"));
       char path_xml[PATH_MAX];
       sprintf(path_xml, "%s/%d.xml", run->root, exp);
       char threshold_c[3];
@@ -695,17 +822,13 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
       }
     }
 #ifdef DEBUG
-    fprintf(stderr, "  write_im_chemokine(\"%s\")\n",
-	    FILES_GRIDS[i]);
+    fprintf(stderr, "  write_im_chemokine(\"%s\")\n", im_name);
 #endif
     sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
-	    opts->o, exp, time, im_counter, name);
+	    opts->o, exp, time, im_counter, im_name);
     write_im_chemokine(path, im_f);
     ++im_counter;
   }
-
-  /* Write calculated GRIDS. */
-  // TODO
 
   free(im_f);
   free(buffer);
