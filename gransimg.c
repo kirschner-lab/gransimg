@@ -669,7 +669,7 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
   for (size_t i = 0; i < N_FILES_GRIDS; ++i) {
     sprintf(path, "%s/exp%d/exp%d-1/%s%d.csv",
 	    run->root, exp, exp, FILES_GRIDS[i], seed);
-    fprintf(stderr, "Saving exp %d time %d grid %ld from %s\n",
+    fprintf(stderr, "Processing exp %d time %d grid %ld from %s\n",
 	    exp, time, i, path);
     char name[NCHARS_FILES_GRIDS];
     strncpy(name, FILES_GRIDS[i], sizeof(FILES_GRIDS[i]));
@@ -682,14 +682,17 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
       strncpy(name, "caseum", sizeof("caseum"));
       char path_xml[PATH_MAX];
       sprintf(path_xml, "%s/%d.xml", run->root, exp);
-      char cvalue[3];
+      char cthreshold[3];
       char xpath[] = "/GR/Core@nrKillingsCaseation";
-      read_xml_xpath(cvalue, 3, xpath, path_xml);
-      int value = atoi(cvalue);
+      read_xml_xpath(cthreshold, 3, xpath, path_xml);
+      int threshold = atoi(cthreshold);
 #ifdef DEBUG
       fprintf(stderr, "Setting exp %d caseum threshold from %s = %d\n",
-	      exp, xpath, value);
+	      exp, xpath, threshold);
 #endif
+      for (int i = 0; i < SZ * SZ; ++i) {
+	im_f[i] = im_f[i] >= threshold;
+      }
     }
 #ifdef DEBUG
     fprintf(stderr, "  write_im_chemokine(\"%s\")\n",
