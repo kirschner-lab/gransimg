@@ -1,5 +1,6 @@
 libomp_root = /opt/homebrew/Cellar/libomp/18.1.7
 libtiff_root = /Users/Shared/spack/libtiff/4.5.1/jav6eph
+libxml2_root = /opt/homebrew/Cellar/libxml2/2.12.6
 
 # Using OpenMP with Apple clang additionally requires -Xpreprocessor or
 # -Wp,<arg1>,<arg2> to pass -fopenmp to the preprocessor per
@@ -13,12 +14,16 @@ rule cc
   -Wp,-fopenmp $
   -I$libomp_root/include $
   -I$libtiff_root/include $
+  -I$libxml2_root/include/libxml2 $
   -L$libomp_root/lib $
   -L$libtiff_root/lib $
+  -L$libxml2_root/lib $
   -Wl,-rpath,$libomp_root/lib $
   -Wl,-rpath,$libtiff_root/lib $
+  -Wl,-rpath,$libxml2_root/lib $
   -lomp $
-  -ltiff
+  -ltiff $
+  -lxml2
 
 rule validate_mem
   command = leaks -atExit -- ./$out --test

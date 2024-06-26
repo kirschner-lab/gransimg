@@ -34,6 +34,8 @@
 /* External libraries */
 #include <omp.h>
 #include <tiffio.h>
+#include <libxml/parser.h>
+#include <libxml/xpath.h>
 
 
 /* BEGIN USER CONFIGURATION */
@@ -48,11 +50,12 @@ const int TS_PER_DAY = 144;
 const char FILE_AGENTS[] = "agents";
 
 /** The value(s) of `--grids-to-dump` in "lung-model-options-short.sh". */
-const char FILES_GRIDS[][10] = {
+const size_t NCHARS_FILES_GRIDS = 10;
+const char FILES_GRIDS[][NCHARS_FILES_GRIDS] = {
   "TNF",
   "nKillings"
 };
-const size_t N_FILES_GRIDS = sizeof(FILES_GRIDS) / sizeof(FILES_GRIDS[0]);
+const size_t N_FILES_GRIDS = sizeof(FILES_GRIDS) / NCHARS_FILES_GRIDS;
 
 /** Mapping of agent states to names. */
 // TODO
@@ -565,6 +568,72 @@ read_grid(float* im, char* path, int time, char* buffer, size_t buffer_sz)
   return 0;
 }
 
+/**
+ * @brief Read XML XPath.
+ *
+ * @param value Output string corresponding to xpath.
+ * @param sz_value Output string size.
+ * @param xpath Input full XPath to retrieve.
+ * @param path Path to XML file.
+ *
+ * @return 0 if XML document parsed successfully, otherwise 1.
+ */
+int
+read_xml_xpath(char* value, size_t sz_value, char* xpath, char* path)
+{
+  /* Validate XPath argument. */
+  char* ptr_end;
+  ptr_end = strchr(xpath, '@');
+  if (ptr_end == NULL) {
+    fprintf(stderr, "Error: XPath missing '@' attribute: %s\n", xpath);
+    return 1;
+  }
+  size_t sz = strlen(xpath);
+  xmlChar xpath_node[sz + 1];
+  strncpy((char*) xpath_node, xpath, ptr_end - xpath);
+  xmlChar xpath_attr[sz - strlen((char*) xpath_node) + 1];
+  strncpy((char*) xpath_attr, ptr_end + 1, sz - (ptr_end - xpath));
+#ifdef DEBUG
+  fprintf(stderr, "XPath %s split into %s node and %s attribute.\n",
+	  xpath, (char*) xpath_node, (char*) xpath_attr);
+#endif
+
+  /* Retrieve XPath node attribute. */
+  xmlDocPtr doc = xmlParseFile(path);
+  if (doc == NULL) {
+    fprintf(stderr, "Error: XML document not parsed successfully: %s\n", path);
+    return 1;
+  }
+  xmlNodePtr cur = xmlDocGetRootElement(doc);
+  if (cur == NULL) {
+    fprintf(stderr, "Error: XML document is empty: %s\n", path);
+    xmlFreeDoc(doc);
+    return 1;
+  }
+  if (xmlStrcmp(cur->name, (const xmlChar *) "GR")) {
+    fprintf(stderr, "Error: XML document missing root node GR: %s\n", path);
+    xmlFreeDoc(doc);
+    return 1;
+  }
+  xmlXPathContextPtr context = xmlXPathNewContext(doc);
+  xmlXPathObjectPtr result =
+    xmlXPathEvalExpression((const xmlChar*) xpath_node, context);
+  if (xmlXPathNodeSetIsEmpty(result->nodesetval)) {
+    fprintf(stderr, "Error: XML document does not contain %s XPath node: %s\n",
+	    xpath, xpath_node);
+    xmlXPathFreeObject(result);
+    xmlXPathFreeContext(context);
+    xmlFreeDoc(doc);
+    return 1;
+  }
+  strncpy(value,
+	  (char*) xmlGetProp(*result->nodesetval->nodeTab, xpath_attr),
+	  sz_value);
+  xmlXPathFreeObject(result);
+  xmlXPathFreeContext(context);
+  xmlFreeDoc(doc);
+  return 0;
+}
 
 /**
  * @brief Write all images for a given experiment and time.
@@ -602,22 +671,39 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
 	    run->root, exp, exp, FILES_GRIDS[i], seed);
     fprintf(stderr, "Saving exp %d time %d grid %ld from %s\n",
 	    exp, time, i, path);
-    if (strncmp(FILES_GRIDS[i], "nKillings", 9) != 0) {
+    char name[NCHARS_FILES_GRIDS];
+    strncpy(name, FILES_GRIDS[i], sizeof(FILES_GRIDS[i]));
 #ifdef DEBUG
-      fprintf(stderr, "  read_grid(%p, \"%s\")\n",
-	      im_f, path);
+    fprintf(stderr, "  read_grid(%p, \"%s\")\n",
+	    im_f, path);
 #endif
-      read_grid(im_f, path, time, buffer, buffer_sz);
+    read_grid(im_f, path, time, buffer, buffer_sz);
+    if (strncmp(FILES_GRIDS[i], "nKillings", 9) == 0) {
+      strncpy(name, "caseum", sizeof("caseum"));
+      char path_xml[PATH_MAX];
+      sprintf(path_xml, "%s/%d.xml", run->root, exp);
+      char cvalue[3];
+      char xpath[] = "/GR/Core@nrKillingsCaseation";
+      read_xml_xpath(cvalue, 3, xpath, path_xml);
+      int value = atoi(cvalue);
 #ifdef DEBUG
-      fprintf(stderr, "  write_im_chemokine(\"%s\")\n",
-	      FILES_GRIDS[i]);
+      fprintf(stderr, "Setting exp %d caseum threshold from %s = %d\n",
+	      exp, xpath, value);
 #endif
-      sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
-	      opts->o, exp, time, im_counter, FILES_GRIDS[i]);
-      write_im_chemokine(path, im_f);
     }
+#ifdef DEBUG
+    fprintf(stderr, "  write_im_chemokine(\"%s\")\n",
+	    FILES_GRIDS[i]);
+#endif
+    sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
+	    opts->o, exp, time, im_counter, name);
+    write_im_chemokine(path, im_f);
     ++im_counter;
   }
+
+  /* Write calculated GRIDS. */
+  // TODO
+
   free(im_f);
   free(buffer);
   return 0;
