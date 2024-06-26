@@ -400,11 +400,11 @@ run_init(run_t* run, opts_t* opts)
 	regmatch_t pmatch[nmatch];
 	ret = regexec(&preg, ent->d_name, nmatch, pmatch, 0);
 	if (ret == 0) {
-	  char cmatch[5];
-	  strncpy(cmatch,
+	  char match_c[5];
+	  strncpy(match_c,
 		  ent->d_name + pmatch[1].rm_so,
 		  pmatch[1].rm_eo - pmatch[1].rm_so);
-	  exps[run->n_exps] = atoi(cmatch);
+	  exps[run->n_exps] = atoi(match_c);
 #ifdef DEBUG
 	  fprintf(stderr, " %d\n", exps[run->n_exps]);
 #endif
@@ -682,10 +682,10 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
       strncpy(name, "caseum", sizeof("caseum"));
       char path_xml[PATH_MAX];
       sprintf(path_xml, "%s/%d.xml", run->root, exp);
-      char cthreshold[3];
+      char threshold_c[3];
       char xpath[] = "/GR/Core@nrKillingsCaseation";
-      read_xml_xpath(cthreshold, 3, xpath, path_xml);
-      int threshold = atoi(cthreshold);
+      read_xml_xpath(threshold_c, 3, xpath, path_xml);
+      int threshold = atoi(threshold_c);
 #ifdef DEBUG
       fprintf(stderr, "Setting exp %d caseum threshold from %s = %d\n",
 	      exp, xpath, threshold);
