@@ -781,31 +781,27 @@ convolve_prob(float* res, uint32_t* im, float* kernel, size_t sz_kernel)
  * @param exp Integer of experiment.
  * @param time Integer of time ticks.
  * @param run Initialized model run_t.
+ * @param im_i Uninitialized 1-D uint32_t SZ * SZ * N_AGENTS image array.
+ * @param im_f Uninitialized 1-D float SZ * SZ image array.
+ * @param buffer Uninitialized char buffer large enough to read grid dump line.
+ * @param buffer_sz Size of buffer.
  *
  * @return 0 on success, 1 if any image is missing.
  */
 int
-write_ims(int exp, int time, run_t* run, opts_t* opts)
+write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
+	  float* im_f, char* buffer, size_t buffer_sz)
 {
   int im_counter = 1;
-  /* Buffer must be large enough to hold an entire row of the CSV. */
-  const size_t buffer_sz = 1<<24;
 #ifdef DEBUG
   printf("Image buffer size: %lu\n", buffer_sz);
 #endif
-  char* buffer = NULL;
-  buffer = (char*) malloc(sizeof(char) * buffer_sz);
-  if (buffer == NULL) {
-    fprintf(stderr, "Error: Cannot allocate image buffer\n");
-    exit(1);
-  }
   /* Read the seed. */
   char path[PATH_MAX];
   int seed;
   run_read_seed(&seed, path, exp, run, buffer, buffer_sz);
 
   /* Write the agents. */
-  uint32_t* im_i = (uint32_t*) malloc(sizeof(uint32_t) * SZ * SZ * N_AGENTS);
   for (size_t i = 0; i < SZ * SZ * N_AGENTS; ++i) {
     im_i[i] = 0;
   }
@@ -831,7 +827,6 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
   }
 
   /* Write agent-derived grids. */
-  float* im_f = (float*) malloc(sizeof(float) * SZ * SZ);
   char path_xml[PATH_MAX];
   sprintf(path_xml, "%s/%d.xml", run->root, exp);
   char xpath_prob[] = "/GR/Core/Tcell/Tgam@probIFNMooreExtend";
@@ -902,8 +897,6 @@ write_ims(int exp, int time, run_t* run, opts_t* opts)
     ++im_counter;
   }
 
-  free(im_f);
-  free(buffer);
   return 0;
 }
 
@@ -931,20 +924,52 @@ main(int argc, char* argv[])
 
   /* Shared memory allocations. */
   const int max_sets = run.n_exps * run.n_times;
+  const int ndigits_max_sets = 1 + max_sets / 10;
   atomic_int sum_sets = 0;
 #pragma omp parallel
   {
-    /* Thread-specific memory allocations. */
+    /* Thread-specific memory allocations:
+       All agents. */
+    uint32_t* im_i = NULL;
+    im_i = (uint32_t*) malloc(sizeof(uint32_t) * SZ * SZ * N_AGENTS);
+    if (im_i == NULL) {
+      fprintf(stderr, "Error: Cannot allocate image agent buffer\n");
+      exit(1);
+    }
+    /* Single grid dump. */
+    float* im_f = NULL;
+    im_f = (float*) malloc(sizeof(float) * SZ * SZ);
+    if (im_f == NULL) {
+      fprintf(stderr, "Error: Cannot allocate image grid buffer\n");
+      exit(1);
+    }
+    /* Buffer large enough to hold an entire row of the grid dump CSV. */
+    const size_t buffer_sz = 1<<24;
+    char* buffer = NULL;
+    buffer = (char*) malloc(sizeof(char) * buffer_sz);
+    if (buffer == NULL) {
+      fprintf(stderr, "Error: Cannot allocate CSV buffer\n");
+      exit(1);
+    }
+
+    /* Main loop. */
 #pragma omp for nowait
     for (int i = 0; i < max_sets; ++i) {
       int exp = run.exps[i - i / run.n_exps];
       int time = run.times[i / run.n_exps];
-      write_ims(exp, time, &run, &opts);
+      write_ims(exp, time, &run, &opts, im_i, im_f, buffer, buffer_sz);
       ++sum_sets;
+      fprintf(stderr,
+	      "Progress: %*d / %*d (%5.1f%%) after finishing exp %d time %d\n",
+	      ndigits_max_sets, sum_sets,
+	      ndigits_max_sets, max_sets,
+	      (100.0 * sum_sets) / max_sets,
+	      exp, time);
     }
-    /* Report progress in master thread only. */
-#pragma omp master
-    fprintf(stderr, "Progress: %d / %d\n", sum_sets, max_sets);
+
+    free(im_i);
+    free(im_f);
+    free(buffer);
   }
   fprintf(stderr, "Finished\n");
 
