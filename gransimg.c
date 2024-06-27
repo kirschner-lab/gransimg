@@ -572,9 +572,9 @@ read_agents(uint32_t* im, char* path, int time, char* buffer, size_t buffer_sz)
     /* Scan the image values. */
     int line_time = time;
     while (! feof(stream) && time == line_time) {
-      int type, state, x, y;
-      fscanf(stream, "%d,%*d,%d,%d,%d,%d,%*[^\n]\n",
-	     &line_time, &type, &state, &x, &y);
+      int id, type, state, x, y;
+      fscanf(stream, "%d,%d,%d,%d,%d,%d,%*[^\n]\n",
+	     &line_time, &id, &type, &state, &x, &y);
       if (time == line_time &&
 	type < N_AGENT_TYPES &&
 	  state < N_AGENT_STATES) {
@@ -586,7 +586,7 @@ read_agents(uint32_t* im, char* path, int time, char* buffer, size_t buffer_sz)
 	  int offset = agent * SZ * SZ;
 	  int row = y;
 	  int col = x;
-	  ++im[(row * SZ + col) + offset];
+	  im[(row * SZ + col) + offset] = id;
 	}
       }
     }
