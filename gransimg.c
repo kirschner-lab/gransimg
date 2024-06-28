@@ -116,9 +116,9 @@ struct opts_s {
 typedef struct opts_s opts_t;
 
 /** Program usage matching LONGOPTS below. */
-const char USAGE[] = "Usage: gransimg [--help] [--test] [--input DIR_INPUT] "
-  "[--output DIR_OUTPUT]\n"
-  "                [--exps LIST_EXPS] [--days LIST_DAYS]\n\n"
+const char USAGE[] = "Usage: gransimg [--help] [--test-imgs] [--test-args]"
+  "[--input DIR_INPUT]\n"
+  "                [--output DIR_OUTPUT] [--exps LIST_EXPS] [--days LIST_DAYS]\n\n"
   "Convert GranSim agent and grid dumps to TIFF images.  Images from each\n"
   "experiment are created in parallel using OpenMP.\n\n"
   "options:\n"
@@ -128,12 +128,12 @@ const char USAGE[] = "Usage: gransimg [--help] [--test] [--input DIR_INPUT] "
   "--test-args  Show input arguments.\n"
   "--input      Path to the model run directory (default: .)\n"
   "--output     Path to the TIFF image output directory (default: img).\n"
-  "--exps       String of integers separated by non-numeric characters without\n"
-  "             corresponding replicate integers (default: 0 for all).  All\n"
-  "             replicates are run and individual replicates are not currently\n"
-  "             supported.\n"
-  "--days       String of integers separated by non-numeric characters\n"
-  "             (default: 0 for the last day).\n";
+  "--exps       String of integers separated by a single commas without\n"
+  "             corresponding replicate integers (default: 0 for all).  The\n"
+  "             first replicate is run and additional replicates are not\n"
+  "             currently supported.\n"
+  "--days       String of integers separated by a single comma (default: 0\n"
+  "             for the last day).\n";
 
 /** Populate the option structs described in `man 3 getopt_long`. */
 const struct option LONGOPTS[] = {
@@ -393,6 +393,32 @@ run_read_seed(int* seed, char* path, int exp, run_t* run, char* buffer,
 
 
 /**
+ * @brief Split comma-separated string into integers.
+ *
+ * @param arr Result int array.
+ * @param sz_arr size of result int array.
+ * @param str Source character string with zero or more commas.
+ * @param mul Multiplier before storing integer result for unit conversion.
+ */
+void
+strtoi(int* arr, int* sz_arr, char* str, int mul)
+{
+  /* Create a copy to avoid manging the original string with null characters
+     replacing the delimiter. */
+  char str_[strlen(str) + 1];
+  strncpy(str_, str, strlen(str) + 1);
+  char* token;
+  int i = 0;
+  token = strtok(str_, ",");
+  while (token) {
+    arr[i++] = atoi(token) * mul;
+    token = strtok(NULL, ",");
+  }
+  *sz_arr = i;
+}
+
+
+/**
  * @brief Initialize metadata for the model directory.
  *
  * @param run Stores new run object.
@@ -403,6 +429,8 @@ run_init(run_t* run, opts_t* opts)
 {
   char* root = (char*) malloc(PATH_MAX * sizeof(char));
   run->root = realpath(opts->i, root);
+  run->exps = (int*) malloc(EXPS_MAX * sizeof(int));
+  run->times = (int*) malloc(TIMES_MAX * sizeof(int));
 
   /* If no experiments are provided, process all experiment directories. */
   if (strncmp(opts->e, "0", 1) == 0) {
@@ -423,7 +451,6 @@ run_init(run_t* run, opts_t* opts)
 	      run->root);
       exit(1);
     }
-    int* exps = (int*) malloc(EXPS_MAX * sizeof(int));
     struct dirent* ent;
     while ((ent = readdir(dir)) != NULL) {
       if (ent->d_type == DT_DIR) {
@@ -440,9 +467,9 @@ run_init(run_t* run, opts_t* opts)
 	  strncpy(match_c,
 		  ent->d_name + pmatch[1].rm_so,
 		  pmatch[1].rm_eo - pmatch[1].rm_so);
-	  exps[run->n_exps] = atoi(match_c);
+	  run->exps[run->n_exps] = atoi(match_c);
 #ifdef DEBUG
-	  fprintf(stderr, " %d\n", exps[run->n_exps]);
+	  fprintf(stderr, " %d\n", run->exps[run->n_exps]);
 #endif
 	  run->n_exps++;
 	} else if (ret == REG_NOMATCH) {
@@ -458,14 +485,11 @@ run_init(run_t* run, opts_t* opts)
       }
     }
     regfree(&preg);
-    exps = (int*) realloc(exps, sizeof(int) * run->n_exps);
-    run->exps = exps;
   } else {
-    /* TODO. */
+    strtoi(run->exps, &(run->n_exps), opts->e, 1);
   }
 
   /* If no days are provided, process last timepoint. */
-  int* times = (int*) malloc(TIMES_MAX * sizeof(int));
   if (strncmp(opts->d, "0", 1) == 0) {
     run->n_times = 1;
     /* The smallest file is the stats file. */
@@ -492,16 +516,16 @@ run_init(run_t* run, opts_t* opts)
 	  break;
 	}
       }
-      times[0] = atoi(buffer);
+      run->times[0] = atoi(buffer);
     } else {
       fprintf(stderr, "Error: Cannot read file %s\n", file_seed);
       exit(1);
     }
-    times = (int*) realloc(times, sizeof(int) * run->n_times);
   } else {
-    /* TODO. */
+    strtoi(run->times, &(run->n_times), opts->d, TS_PER_DAY);
   }
-  run->times = times;
+  run->exps = (int*) realloc(run->exps, sizeof(int) * run->n_exps);
+  run->times = (int*) realloc(run->times, sizeof(int) * run->n_times);
 }
 
 
