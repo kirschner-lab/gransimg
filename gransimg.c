@@ -536,8 +536,11 @@ void
 run_destroy(run_t* run)
 {
   free(run->root);
+  run->root = NULL;
   free(run->exps);
+  run->exps = NULL;
   free(run->times);
+  run->times = NULL;
 }
 
 
@@ -972,8 +975,11 @@ main(int argc, char* argv[])
     }
 
     free(im_i);
+    im_i = NULL;
     free(im_f);
+    im_f = NULL;
     free(buffer);
+    buffer = NULL;
   }
   fprintf(stderr, "Finished\n");
 
