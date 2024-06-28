@@ -29,7 +29,11 @@
 /* Unix library */
 #include <dirent.h>
 #include <getopt.h>
+#ifdef __APPLE__
 #include <sys/syslimits.h>	/* PATH_MAX */
+#else
+#include <linux/limits.h>	/* PATH_MAX */
+#endif
 #include <unistd.h>
 
 /* External libraries */
@@ -51,8 +55,8 @@ const int TS_PER_DAY = 144;
 const char FILE_AGENTS[] = "agents";
 
 /** The value(s) of `--grids-to-dump` in "lung-model-options-short.sh". */
-const size_t NCHARS_FILES_GRIDS = 10;
-const char FILES_GRIDS[][NCHARS_FILES_GRIDS] = {
+#define NCHARS_FILES_GRIDS 10
+const char FILES_GRIDS[2][NCHARS_FILES_GRIDS] = {
   "TNF",
   "nKillings"
 };
@@ -69,8 +73,8 @@ typedef enum {
   N_AGENTS,
   IGNORE
 } agent_group_t;
-const size_t NCHARS_AGENT_GROUP = 7;
-const char AGENT_GROUP_NAMES[][NCHARS_AGENT_GROUP] = {
+#define NCHARS_AGENT_GROUP 7
+const char AGENT_GROUP_NAMES[N_AGENTS][NCHARS_AGENT_GROUP] = {
   "mac",
   "t_gam",
   "t_cyt",
@@ -79,8 +83,8 @@ const char AGENT_GROUP_NAMES[][NCHARS_AGENT_GROUP] = {
   "myofib"
 };
 /* O(1) lookup of agent group from agent TYPE and STATE. */
-const int N_AGENT_TYPES = 7;
-const int N_AGENT_STATES = 4;
+#define N_AGENT_TYPES 7
+#define N_AGENT_STATES 4
 const int AGENT_GROUPS[N_AGENT_TYPES][N_AGENT_STATES] = {
   /*    0,      1,      2,      3 : STATES */
   {   MAC,    MAC,    MAC,    MAC}, /* 0 : MAC */
