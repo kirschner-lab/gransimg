@@ -21,6 +21,7 @@ rule cc
   -Wl,-rpath,$libomp_root/lib $
   -Wl,-rpath,$libtiff_root/lib $
   -Wl,-rpath,$libxml2_root/lib $
+  -lm $
   -lomp $
   -ltiff $
   -lxml2

@@ -20,6 +20,7 @@
 /* C standard library */
 #include <ctype.h>
 #include <errno.h>
+#include <math.h>
 #include <regex.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -966,7 +967,7 @@ main(int argc, char* argv[])
 
   /* Shared memory allocations. */
   const int max_sets = run.n_exps * run.n_times;
-  const int ndigits_max_sets = 1 + max_sets / 10;
+  const int ndigits_max_sets = 1 + floor(log10(max_sets));
   atomic_int sum_sets = 0;
 #pragma omp parallel
   {
