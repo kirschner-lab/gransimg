@@ -454,19 +454,23 @@ run_init(run_t* run, opts_t* opts)
     struct dirent* ent;
     while ((ent = readdir(dir)) != NULL) {
       if (ent->d_type == DT_DIR) {
+	/* The GNU readdir man page says that ent->d_name must not be used
+	   directly according to POSIX.1. */
+	char dir_maybe[PATH_MAX];
+	strncpy(dir_maybe, ent->d_name, strlen(ent->d_name) + 1);
 #ifdef DEBUG
 	fprintf(stderr,
 		"Checking if directory matches %s pattern: %s ...",
-		pat, ent->d_name);
+		dir_maybe, pat);
 #endif
 	size_t nmatch = 2;
 	regmatch_t pmatch[nmatch];
-	ret = regexec(&preg, ent->d_name, nmatch, pmatch, 0);
+	ret = regexec(&preg, dir_maybe, nmatch, pmatch, 0);
 	if (ret == 0) {
-	  char match_c[5];
-	  strncpy(match_c,
-		  ent->d_name + pmatch[1].rm_so,
+	  char match_c[6];
+	  strncpy(match_c, dir_maybe + pmatch[1].rm_so,
 		  pmatch[1].rm_eo - pmatch[1].rm_so);
+	  match_c[pmatch[1].rm_eo - pmatch[1].rm_so] = '\0';
 	  run->exps[run->n_exps] = atoi(match_c);
 #ifdef DEBUG
 	  fprintf(stderr, " %d\n", run->exps[run->n_exps]);
@@ -589,6 +593,7 @@ read_agents(uint32_t* im, char* path, int time, char* buffer, size_t buffer_sz)
       for (size_t i = 0; i < buffer_sz; ++i) {
 	if (buffer[i] == ',') {
 	  strncpy(time_c, buffer, i);
+	  time_c[i] = '\0';
 	  if (time == atoi(time_c)) {
 	    found = true;
 	  }
@@ -655,6 +660,7 @@ read_grid(float* im, char* path, int time, char* buffer, size_t buffer_sz)
       for (size_t i = 0; i < buffer_sz; ++i) {
 	if (buffer[i] == ',') {
 	  strncpy(time_c, buffer, i);
+	  time_c[i] = '\0';
 	  if (time == atoi(time_c)) {
 	    found = true;
 	    offset = i;
@@ -669,6 +675,7 @@ read_grid(float* im, char* path, int time, char* buffer, size_t buffer_sz)
 #ifdef DEBUG
     /* Printing the entire buffer line is massive, so only print a preview. */
     strncpy(time_c, buffer, 127);
+    time_c[127] = '\0';
     fprintf(stderr, "Image line: %s...\n", time_c);
 #endif
     /* Scan the image values. */
@@ -848,6 +855,7 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
   char im_name[128];
   for (int i = 0; i < N_AGENTS; ++i) {
     strncpy(im_name, AGENT_GROUP_NAMES[i], NCHARS_AGENT_GROUP);
+    im_name[NCHARS_AGENT_GROUP] = '\0';
 #ifdef DEBUG
     fprintf(stderr, "  write_im_agent(\"%s\")\n", im_name);
 #endif
@@ -879,6 +887,7 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
     uint32_t* im_tgam = &im_i[T_GAM * SZ * SZ];
     convolve_prob(im_f, im_tgam, kernel, 5);
     strncpy(im_name, "ifng", sizeof("ifng"));
+    im_name[sizeof("ifng")] = '\0';
 #ifdef DEBUG
     fprintf(stderr, "  write_im_grid(\"%s\")\n", im_name);
 #endif
@@ -895,6 +904,7 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
     fprintf(stderr, "Processing exp %d time %d grid %ld from %s\n",
 	    exp, time, i, path);
     strncpy(im_name, FILES_GRIDS[i], sizeof(FILES_GRIDS[i]));
+    im_name[sizeof(FILES_GRIDS[i])] = '\0';
 #ifdef DEBUG
     fprintf(stderr, "  read_grid(%p, \"%s\")\n",
 	    im_f, path);
@@ -902,6 +912,7 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
     read_grid(im_f, path, time, buffer, buffer_sz);
     if (strncmp(FILES_GRIDS[i], "nKillings", 9) == 0) {
       strncpy(im_name, "caseum", sizeof("caseum"));
+      im_name[sizeof("caseum")] = '\0';
       char threshold_c[3];
       char xpath_threshold[] = "/GR/Core@nrKillingsCaseation";
       ret = read_xml_xpath(threshold_c, 3, xpath_threshold, path_xml);
