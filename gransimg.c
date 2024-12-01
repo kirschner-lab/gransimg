@@ -998,7 +998,7 @@ main(int argc, char* argv[])
     /* Main loop. */
 #pragma omp for nowait
     for (int i = 0; i < max_sets; ++i) {
-      int exp = run.exps[i - i / run.n_exps];
+      int exp = run.exps[i - (i / run.n_exps) * run.n_exps];
       int time = run.times[i / run.n_exps];
       write_ims(exp, time, &run, &opts, im_i, im_f, buffer, buffer_sz);
       ++sum_sets;
