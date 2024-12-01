@@ -1,6 +1,6 @@
-libomp_root = /opt/homebrew/Cellar/libomp/18.1.7
+libomp_root = /opt/homebrew/Cellar/libomp/18.1.8
 libtiff_root = /Users/Shared/spack/libtiff/4.5.1/jav6eph
-libxml2_root = /opt/homebrew/Cellar/libxml2/2.12.6
+libxml2_root = /opt/homebrew/Cellar/libxml2/2.13.3
 
 # Using OpenMP with Apple clang additionally requires -Xpreprocessor or
 # -Wp,<arg1>,<arg2> to pass -fopenmp to the preprocessor per
