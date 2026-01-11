@@ -1,6 +1,6 @@
 /* gransimg.c - GranSim TIFF image output.
  *
- * Copyright (C) 2024 Kirschner Laboratory, Pariksheet Nanda <pnanda@umich.edu>
+ * Copyright (C) 2024-2026 Kirschner Laboratory, Pariksheet Nanda <pnanda@umich.edu>
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -246,7 +246,7 @@ write_im_agent(char* name, uint32_t* im)
   if (tif) {
     tmsize_t bufsz = TIFFStripSize(tif);
     uint32_t *buf = (uint32_t*) _TIFFmalloc(bufsz);
-    for (size_t i = 0; i < SZ; ++i) {
+    for (int i = 0; i < SZ; ++i) {
       for (int j = 0; j < SZ; ++j) {
 	buf[j] = im[i * SZ + j];
       }
@@ -279,7 +279,7 @@ write_im_chemokine(char* name, float* im) {
   if (tif) {
     tmsize_t bufsz = TIFFStripSize(tif);
     float *buf = (float*) _TIFFmalloc(bufsz);
-    for (size_t i = 0; i < SZ; ++i) {
+    for (int i = 0; i < SZ; ++i) {
       for (int j = 0; j < SZ; ++j) {
 	buf[j] = im[i * SZ + j];
       }
@@ -846,9 +846,9 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
   }
   sprintf(path, "%s/exp%d/exp%d-1/%s%d.csv",
 	  run->root, exp, exp, FILE_AGENTS, seed);
+#ifdef DEBUG
   fprintf(stderr, "Processing exp %d time %d agents from %s\n",
 	  exp, time, path);
-#ifdef DEBUG
   fprintf(stderr, "  read_agents(%p, \"%s\")\n",
 	  im_i, path);
 #endif
@@ -902,8 +902,10 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
   for (size_t i = 0; i < N_FILES_GRIDS; ++i) {
     sprintf(path, "%s/exp%d/exp%d-1/%s%d.csv",
 	    run->root, exp, exp, FILES_GRIDS[i], seed);
+#ifdef DEBUG
     fprintf(stderr, "Processing exp %d time %d grid %ld from %s\n",
 	    exp, time, i, path);
+#endif
     strncpy(im_name, FILES_GRIDS[i], sizeof(FILES_GRIDS[i]));
     im_name[sizeof(FILES_GRIDS[i])] = '\0';
 #ifdef DEBUG
@@ -969,6 +971,7 @@ main(int argc, char* argv[])
   const int max_sets = run.n_exps * run.n_times;
   const int ndigits_max_sets = 1 + floor(log10(max_sets));
   atomic_int sum_sets = 0;
+  atomic_int perc_print = 0;
 #pragma omp parallel
   {
     /* Thread-specific memory allocations:
@@ -1002,12 +1005,20 @@ main(int argc, char* argv[])
       int time = run.times[i / run.n_exps];
       write_ims(exp, time, &run, &opts, im_i, im_f, buffer, buffer_sz);
       ++sum_sets;
-      fprintf(stderr,
-	      "Progress: %*d / %*d (%5.1f%%) after finishing exp %d time %d\n",
-	      ndigits_max_sets, sum_sets,
-	      ndigits_max_sets, max_sets,
-	      (100.0 * sum_sets) / max_sets,
-	      exp, time);
+      /* Print up to 100 lines of progress. */
+      int perc_actual = (int) floor((100.0 * sum_sets) / max_sets);
+      if (perc_actual >= perc_print) {
+	perc_print = perc_actual + 1;
+	if (perc_print > 100) {
+	  perc_print = 100;
+	}
+	fprintf(stderr,
+		"Progress: %*d / %*d (%5.1f%%) after finishing exp %d time %d\n",
+		ndigits_max_sets, sum_sets,
+		ndigits_max_sets, max_sets,
+		(100.0 * sum_sets) / max_sets,
+		exp, time);
+      }
     }
 
     free(im_i);
@@ -1017,7 +1028,7 @@ main(int argc, char* argv[])
     free(buffer);
     buffer = NULL;
   }
-  fprintf(stderr, "Finished\n");
+  fprintf(stderr, "Finished exporting TIFF images\n");
 
   run_destroy(&run);
 
