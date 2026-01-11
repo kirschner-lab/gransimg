@@ -5,3 +5,5 @@
 /gransimg.dSYM/
 /img/
 /imgs/
+/subprojects/*/
+/subprojects/.wraplock
