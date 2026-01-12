@@ -730,6 +730,7 @@ read_xml_xpath(char* value, size_t sz_value, char* xpath, char* path)
   }
   char xpath_node[strlen(xpath) + 1];
   strncpy(xpath_node, xpath, ptr_end - xpath);
+  xpath_node[ptr_end - xpath] = '\0';
   char* xpath_attr = (ptr_end + 1);
 #ifdef DEBUG
   fprintf(stderr, "XPath %s split into %s node and %s attribute.\n",
