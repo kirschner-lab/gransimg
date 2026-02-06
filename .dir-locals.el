@@ -2,6 +2,8 @@
 ;;; For more information see (info "(emacs) Directory Variables")
 
 ((c-mode
-  . ((flycheck-clang-include-path
-      . ("/Users/Shared/spack/libtiff/4.5.1/jav6eph/include"
-	 "/opt/homebrew/Cellar/libomp/18.1.7/include")))))
+  . ((flycheck-gcc-include-path
+      . ("/home/pan79/src/gransimg/subprojects/tiff-4.7.1/libtiff"
+	 "/home/pan79/src/gransimg/subprojects/libxml2-2.15.1/include"
+	 "/home/pan79/src/gransimg/builddir/subprojects/tiff-4.7.1/libtiff"
+	 "/home/pan79/src/gransimg/builddir/subprojects/libxml2-2.15.1/include")))))
