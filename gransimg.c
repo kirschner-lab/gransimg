@@ -113,8 +113,9 @@ struct opts_s {
   char* i;
   char* o;
   char* e;
+  char* r;
   char* d;
-} opts_default = {".", "img", "0", "0"};
+} opts_default = {".", "img", "0", "0", "0"};
 typedef struct opts_s opts_t;
 
 /** Program usage matching LONGOPTS below. */
@@ -131,9 +132,8 @@ const char USAGE[] = "Usage: gransimg [--help] [--test-imgs] [--test-args]"
   "--input      Path to the model run directory (default: .)\n"
   "--output     Path to the TIFF image output directory (default: img).\n"
   "--exps       String of integers separated by a single commas without\n"
-  "             corresponding replicate integers (default: 0 for all).  The\n"
-  "             first replicate is run and additional replicates are not\n"
-  "             currently supported.\n"
+  "             corresponding replicate integers (default: 0 for all).\n"
+  "--reps       Number of replicates (default: 0 for all).\n"
   "--days       String of integers separated by a single comma (default: 0\n"
   "             for the last day).\n";
 
@@ -145,6 +145,7 @@ const struct option LONGOPTS[] = {
   {"input", required_argument, NULL, 'i'},
   {"output", required_argument, NULL, 'o'},
   {"exps", required_argument, NULL, 'e'},
+  {"reps", required_argument, NULL, 'r'},
   {"days", required_argument, NULL, 'd'},
   {NULL, 0, NULL, 0}
 };
@@ -153,12 +154,15 @@ const struct option LONGOPTS[] = {
 struct run_s {
   char* root;
   int* exps;
+  int* reps;
   int* times;
   int n_exps;
+  int n_reps;
   int n_times;
-} run_default = {NULL, NULL, NULL, 0, 0};
+} run_default = {NULL, NULL, NULL, NULL, 0, 0, 0};
 typedef struct run_s run_t;
 const int EXPS_MAX = 65535;
+const int REPS_MAX = 1;		/* Array size, not max number of reps! */
 const int TIMES_MAX = 65535;
 
 /* END CONSTANTS, ENUMS, AND STRUCTS */
@@ -304,8 +308,8 @@ write_im_chemokine(char* name, float* im) {
 void
 print_args(opts_t* opts)
 {
-  printf("input: %s\noutput: %s\nexps: %s\ndays: %s\n",
-	 opts->i, opts->o, opts->e, opts->d);
+  printf("input: %s\noutput: %s\nexps: %s\nreps: %s\ndays: %s\n",
+	 opts->i, opts->o, opts->e, opts->r, opts->d);
 }
 
 
@@ -351,6 +355,9 @@ parse_args(opts_t* opts, int argc, char* argv[])
     case 'e':
       opts->e = optarg;
       break;
+    case 'r':
+      opts->r = optarg;
+      break;
     case 'd':
       opts->d = optarg;
       break;
@@ -374,14 +381,15 @@ parse_args(opts_t* opts, int argc, char* argv[])
  * @param seed Output seed integer value.
  * @param path Output path to the seed file.
  * @param exp Experiment to read.
+ * @param rep Replicate to read.
  * @param run Simulation run object containing the root directory.
  * @param buffer Temporary storage of seed file contents.
  */
 void
-run_read_seed(int* seed, char* path, int exp, run_t* run, char* buffer,
-	      size_t buffer_sz)
+run_read_seed(int* seed, char* path, int exp, int rep, run_t* run,
+	      char* buffer, size_t buffer_sz)
 {
-  sprintf(path, "%s/exp%d/exp%d-1/seed", run->root, exp, exp);
+  sprintf(path, "%s/exp%d/exp%d-%d/seed", run->root, exp, exp, rep);
   FILE* stream = fopen(path, "r");
   if (stream) {
     fgets(buffer, buffer_sz, stream);
@@ -432,6 +440,7 @@ run_init(run_t* run, opts_t* opts)
   char* root = (char*) malloc(PATH_MAX * sizeof(char));
   run->root = realpath(opts->i, root);
   run->exps = (int*) malloc(EXPS_MAX * sizeof(int));
+  run->reps = (int*) malloc(REPS_MAX * sizeof(int));
   run->times = (int*) malloc(TIMES_MAX * sizeof(int));
 
   /* If no experiments are provided, process all experiment directories. */
@@ -495,6 +504,26 @@ run_init(run_t* run, opts_t* opts)
     strtoi(run->exps, &(run->n_exps), opts->e, 1);
   }
 
+  /* If no reps are provided, process all reps as read from the first
+     experiment directory. */
+  if (strncmp(opts->r, "0", 1) == 0) {
+    for (int rep_i = 1; rep_i <= 20; ++rep_i) {
+      int exp = run->exps[0];
+      char dir_rep[PATH_MAX];
+      sprintf(dir_rep, "%s/exp%d/exp%d-%d",
+	      run->root, exp, exp, rep_i);
+      DIR* dir = opendir(dir_rep);
+      if (dir) {
+	run->reps[0] = rep_i;
+	closedir(dir);
+      } else {
+	break;
+      }
+    }
+  } else {
+    strtoi(run->reps, &(run->n_reps), opts->r, 1);
+  }
+
   /* If no days are provided, process last timepoint. */
   if (strncmp(opts->d, "0", 1) == 0) {
     run->n_times = 1;
@@ -503,7 +532,7 @@ run_init(run_t* run, opts_t* opts)
     char file_seed[PATH_MAX];
     int seed = -1;
     char buffer[65535];
-    run_read_seed(&seed, file_seed, exp, run, buffer, 65535);
+    run_read_seed(&seed, file_seed, exp, 1, run, buffer, 65535);
     sprintf(file_seed, "%s/exp%d/exp%d-1/seed%d.csv",
 	    run->root, exp, exp, seed);
     FILE* stream = fopen(file_seed, "r");
@@ -548,6 +577,10 @@ run_print(run_t* run)
   for (int i = 1; i < run->n_exps; ++i) {
     printf(", %d", run->exps[i]);
   }
+  printf("\nreps: <%d> 1", run->reps[0]);
+  for (int i = 1; i < run->reps[0]; ++i) {
+    printf(", %d", i + 1);
+  }
   printf("\ntimes: <%d> ", run->n_times);
   printf("%d", run->times[0]);
   for (int i = 1; i < run->n_times; ++i) {
@@ -569,6 +602,8 @@ run_destroy(run_t* run)
   run->root = NULL;
   free(run->exps);
   run->exps = NULL;
+  free(run->reps);
+  run->reps = NULL;
   free(run->times);
   run->times = NULL;
 }
@@ -820,6 +855,7 @@ convolve_prob(float* res, uint32_t* im, float* kernel, size_t sz_kernel)
  * @brief Write all images for a given experiment and time.
  *
  * @param exp Integer of experiment.
+ * @param rep Integer of replicate.
  * @param time Integer of time ticks.
  * @param run Initialized model run_t.
  * @param im_i Uninitialized 1-D uint32_t SZ * SZ * N_AGENTS image array.
@@ -830,7 +866,7 @@ convolve_prob(float* res, uint32_t* im, float* kernel, size_t sz_kernel)
  * @return 0 on success, 1 if any image is missing.
  */
 int
-write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
+write_ims(int exp, int rep, int time, run_t* run, opts_t* opts, uint32_t* im_i,
 	  float* im_f, char* buffer, size_t buffer_sz)
 {
   int im_counter = 1;
@@ -840,16 +876,16 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
   /* Read the seed. */
   char path[PATH_MAX];
   int seed;
-  run_read_seed(&seed, path, exp, run, buffer, buffer_sz);
+  run_read_seed(&seed, path, exp, rep, run, buffer, buffer_sz);
 
   /* Write the agents. */
   for (size_t i = 0; i < SZ * SZ * N_AGENTS; ++i) {
     im_i[i] = 0;
   }
-  sprintf(path, "%s/exp%d/exp%d-1/%s%d.csv",
-	  run->root, exp, exp, FILE_AGENTS, seed);
+  sprintf(path, "%s/exp%d/exp%d-%d/%s%d.csv",
+	  run->root, exp, exp, rep, FILE_AGENTS, seed);
 #ifdef DEBUG
-  fprintf(stderr, "Processing exp %d time %d agents from %s\n",
+  fprintf(stderr, "Processing exp %d rep %d time %d agents from %s\n",
 	  exp, time, path);
   fprintf(stderr, "  read_agents(%p, \"%s\")\n",
 	  im_i, path);
@@ -862,8 +898,8 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
 #ifdef DEBUG
     fprintf(stderr, "  write_im_agent(\"%s\")\n", im_name);
 #endif
-    sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
-	    opts->o, exp, time, im_counter, im_name);
+    sprintf(path, "%s/exp%d_rep%d_time%d_%02d_%s.tif",
+	    opts->o, exp, rep, time, im_counter, im_name);
     write_im_agent(path, &im_i[i * SZ * SZ]);
     ++im_counter;
   }
@@ -897,18 +933,18 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
 #ifdef DEBUG
     fprintf(stderr, "  write_im_grid(\"%s\")\n", im_name);
 #endif
-    sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
-	    opts->o, exp, time, im_counter, im_name);
+    sprintf(path, "%s/exp%d_rep%d_time%d_%02d_%s.tif",
+	    opts->o, exp, rep, time, im_counter, im_name);
     write_im_chemokine(path, im_f);
   }
   ++im_counter;
 
   /* Write the grids. */
   for (size_t i = 0; i < N_FILES_GRIDS; ++i) {
-    sprintf(path, "%s/exp%d/exp%d-1/%s%d.csv",
-	    run->root, exp, exp, FILES_GRIDS[i], seed);
+    sprintf(path, "%s/exp%d/exp%d-%d/%s%d.csv",
+	    run->root, exp, exp, rep, FILES_GRIDS[i], seed);
 #ifdef DEBUG
-    fprintf(stderr, "Processing exp %d time %d grid %ld from %s\n",
+    fprintf(stderr, "Processing exp %d rep %d time %d grid %ld from %s\n",
 	    exp, time, i, path);
 #endif
 #pragma GCC diagnostic push
@@ -947,8 +983,8 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
 #ifdef DEBUG
     fprintf(stderr, "  write_im_chemokine(\"%s\")\n", im_name);
 #endif
-    sprintf(path, "%s/exp%d_time%d_%02d_%s.tif",
-	    opts->o, exp, time, im_counter, im_name);
+    sprintf(path, "%s/exp%d_rep%d_time%d_%02d_%s.tif",
+	    opts->o, exp, rep, time, im_counter, im_name);
     write_im_chemokine(path, im_f);
     ++im_counter;
   }
@@ -976,7 +1012,7 @@ main(int argc, char* argv[])
   run_print(&run);
 
   /* Shared memory allocations. */
-  const int max_sets = run.n_exps * run.n_times;
+  const int max_sets = run.n_exps * run.reps[0] * run.n_times;
   const int ndigits_max_sets = 1 + floor(log10(max_sets));
   atomic_int sum_sets = 0;
   atomic_int perc_print = 0;
@@ -1009,9 +1045,14 @@ main(int argc, char* argv[])
     /* Main loop. */
 #pragma omp for nowait
     for (int i = 0; i < max_sets; ++i) {
-      int exp = run.exps[i - (i / run.n_exps) * run.n_exps];
-      int time = run.times[i / run.n_exps];
-      write_ims(exp, time, &run, &opts, im_i, im_f, buffer, buffer_sz);
+      int z = i / (run.n_exps * run.reps[0]);
+      int idx = i - (z * run.n_exps * run.reps[0]);
+      int y = idx / run.n_exps;
+      int x = idx % run.n_exps;
+      int exp = run.exps[x];
+      int rep = y + 1;
+      int time = run.times[z];
+      write_ims(exp, rep, time, &run, &opts, im_i, im_f, buffer, buffer_sz);
       ++sum_sets;
       /* Print up to 100 lines of progress. */
       int perc_actual = (int) floor((100.0 * sum_sets) / max_sets);
@@ -1021,11 +1062,11 @@ main(int argc, char* argv[])
 	  perc_print = 100;
 	}
 	fprintf(stderr,
-		"Progress: %*d / %*d (%5.1f%%) after finishing exp %d time %d\n",
+		"Progress: %*d / %*d (%5.1f%%) after finishing exp %d rep %d time %d\n",
 		ndigits_max_sets, sum_sets,
 		ndigits_max_sets, max_sets,
 		(100.0 * sum_sets) / max_sets,
-		exp, time);
+		exp, rep, time);
       }
     }
 
