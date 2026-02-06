@@ -889,7 +889,10 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
     };
     uint32_t* im_tgam = &im_i[T_GAM * SZ * SZ];
     convolve_prob(im_f, im_tgam, kernel, 5);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsizeof-pointer-memaccess"
     strncpy(im_name, "ifng", sizeof("ifng"));
+#pragma GCC diagnostic pop
     im_name[sizeof("ifng")] = '\0';
 #ifdef DEBUG
     fprintf(stderr, "  write_im_grid(\"%s\")\n", im_name);
@@ -908,7 +911,10 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
     fprintf(stderr, "Processing exp %d time %d grid %ld from %s\n",
 	    exp, time, i, path);
 #endif
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsizeof-pointer-memaccess"
     strncpy(im_name, FILES_GRIDS[i], sizeof(FILES_GRIDS[i]));
+#pragma GCC diagnostic pop
     im_name[sizeof(FILES_GRIDS[i])] = '\0';
 #ifdef DEBUG
     fprintf(stderr, "  read_grid(%p, \"%s\")\n",
@@ -916,7 +922,10 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
 #endif
     read_grid(im_f, path, time, buffer, buffer_sz);
     if (strncmp(FILES_GRIDS[i], "nKillings", 9) == 0) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsizeof-pointer-memaccess"
       strncpy(im_name, "caseum", sizeof("caseum"));
+#pragma GCC diagnostic pop
       im_name[sizeof("caseum")] = '\0';
       char threshold_c[3];
       char xpath_threshold[] = "/GR/Core@nrKillingsCaseation";
