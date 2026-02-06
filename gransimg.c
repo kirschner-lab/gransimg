@@ -960,9 +960,6 @@ write_ims(int exp, int time, run_t* run, opts_t* opts, uint32_t* im_i,
 /**
  * @brief Export model directory agents and grid dumps to TIFF.
  *
- * @param name Path to the TIFF file to create or overwrite
- * @param im Dense single-dimensional array of data to store
- *
  * @return 0 on success
  */
 int
