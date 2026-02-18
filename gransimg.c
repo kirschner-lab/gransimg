@@ -121,7 +121,8 @@ typedef struct opts_s opts_t;
 /** Program usage matching LONGOPTS below. */
 const char USAGE[] = "Usage: gransimg [--help] [--test-imgs] [--test-args]"
   "[--input DIR_INPUT]\n"
-  "                [--output DIR_OUTPUT] [--exps LIST_EXPS] [--days LIST_DAYS]\n\n"
+  "                [--output DIR_OUTPUT] [--exps LIST_EXPS] [--reps LIST_REPS]\n"
+  "                [--days LIST_DAYS]\n\n"
   "Convert GranSim agent and grid dumps to TIFF images.  Images from each\n"
   "experiment are created in parallel using OpenMP.\n\n"
   "options:\n"
@@ -131,11 +132,12 @@ const char USAGE[] = "Usage: gransimg [--help] [--test-imgs] [--test-args]"
   "--test-args  Show input arguments.\n"
   "--input      Path to the model run directory (default: .)\n"
   "--output     Path to the TIFF image output directory (default: img).\n"
-  "--exps       String of integers separated by a single commas without\n"
-  "             corresponding replicate integers (default: 0 for all).\n"
-  "--reps       Number of replicates (default: 0 for all).\n"
-  "--days       String of integers separated by a single comma (default: 0\n"
-  "             for the last day).\n";
+  "--exps       String of integers separated by a single commas (default: 0 for\n"
+  "             all).\n"
+  "--reps       String of integers separated by a single commas (default: 0 for\n"
+  "             all).\n"
+  "--days       String of integers separated by a single comma (default: 0 for\n"
+  "             the last day).\n";
 
 /** Populate the option structs described in `man 3 getopt_long`. */
 const struct option LONGOPTS[] = {
@@ -162,7 +164,7 @@ struct run_s {
 } run_default = {NULL, NULL, NULL, NULL, 0, 0, 0};
 typedef struct run_s run_t;
 const int EXPS_MAX = 65535;
-const int REPS_MAX = 1;		/* Array size, not max number of reps! */
+const int REPS_MAX = 65535;
 const int TIMES_MAX = 65535;
 
 /* END CONSTANTS, ENUMS, AND STRUCTS */
@@ -507,14 +509,15 @@ run_init(run_t* run, opts_t* opts)
   /* If no reps are provided, process all reps as read from the first
      experiment directory. */
   if (strncmp(opts->r, "0", 1) == 0) {
-    for (int rep_i = 1; rep_i <= 20; ++rep_i) {
-      int exp = run->exps[0];
+    int exp = run->exps[0];
+    for (int rep_i = 1; rep_i <= REPS_MAX; ++rep_i) {
       char dir_rep[PATH_MAX];
       sprintf(dir_rep, "%s/exp%d/exp%d-%d",
 	      run->root, exp, exp, rep_i);
       DIR* dir = opendir(dir_rep);
       if (dir) {
-	run->reps[0] = rep_i;
+	run->reps[run->n_reps] = rep_i;
+	run->n_reps++;
 	closedir(dir);
       } else {
 	break;
@@ -560,6 +563,7 @@ run_init(run_t* run, opts_t* opts)
     strtoi(run->times, &(run->n_times), opts->d, TS_PER_DAY);
   }
   run->exps = (int*) realloc(run->exps, sizeof(int) * run->n_exps);
+  run->reps = (int*) realloc(run->reps, sizeof(int) * run->n_reps);
   run->times = (int*) realloc(run->times, sizeof(int) * run->n_times);
 }
 
@@ -577,9 +581,10 @@ run_print(run_t* run)
   for (int i = 1; i < run->n_exps; ++i) {
     printf(", %d", run->exps[i]);
   }
-  printf("\nreps: <%d> 1", run->reps[0]);
-  for (int i = 1; i < run->reps[0]; ++i) {
-    printf(", %d", i + 1);
+  printf("\nreps: <%d> ", run->n_reps);
+  printf("%d", run->reps[0]);
+  for (int i = 1; i < run->n_reps; ++i) {
+    printf(", %d", run->reps[i]);
   }
   printf("\ntimes: <%d> ", run->n_times);
   printf("%d", run->times[0]);
@@ -1012,7 +1017,7 @@ main(int argc, char* argv[])
   run_print(&run);
 
   /* Shared memory allocations. */
-  const int max_sets = run.n_exps * run.reps[0] * run.n_times;
+  const int max_sets = run.n_exps * run.n_reps * run.n_times;
   const int ndigits_max_sets = 1 + floor(log10(max_sets));
   atomic_int sum_sets = 0;
   atomic_int perc_print = 0;
@@ -1045,12 +1050,12 @@ main(int argc, char* argv[])
     /* Main loop. */
 #pragma omp for nowait
     for (int i = 0; i < max_sets; ++i) {
-      int z = i / (run.n_exps * run.reps[0]);
-      int idx = i - (z * run.n_exps * run.reps[0]);
+      int z = i / (run.n_exps * run.n_reps);
+      int idx = i - (z * run.n_exps * run.n_reps);
       int y = idx / run.n_exps;
       int x = idx % run.n_exps;
       int exp = run.exps[x];
-      int rep = y + 1;
+      int rep = run.reps[y];
       int time = run.times[z];
       write_ims(exp, rep, time, &run, &opts, im_i, im_f, buffer, buffer_sz);
       ++sum_sets;
